@@ -148,6 +148,15 @@ header h2{font-size:1.1rem}
     <span id="hdr-name" onclick="App.tab('usuario',null)" style="font-size:.9rem;opacity:.85;cursor:pointer;text-decoration:underline dotted"></span>
   </header>
 
+  <!-- NAVEGADOR DE MES -->
+  <div id="mes-nav" style="display:none;background:#1d4ed8;color:#fff;align-items:center;justify-content:space-between;padding:6px 16px">
+    <button onclick="App.navMes(-1)" style="background:none;border:none;color:#fff;font-size:1.4rem;cursor:pointer;padding:4px 12px;line-height:1">‹</button>
+    <div style="text-align:center">
+      <div id="mes-label" style="font-weight:600;font-size:.95rem"></div>
+    </div>
+    <button onclick="App.navMes(1)" style="background:none;border:none;color:#fff;font-size:1.4rem;cursor:pointer;padding:4px 12px;line-height:1">›</button>
+  </div>
+
   <!-- RESUMEN -->
   <div class="panel active" id="panel-resumen">
     <div class="balance-card">
@@ -163,6 +172,9 @@ header h2{font-size:1.1rem}
         <div class="mlabel">Mi pago</div>
         <div class="mamt" id="total-egresos" style="color:#dc2626">$0</div>
       </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+      <button onclick="Mov.nuevoMes()" style="padding:7px 14px;background:#fff;border:1px solid #2563eb;color:#2563eb;border-radius:8px;font-size:.82rem;cursor:pointer">+ Copiar recurrentes al mes</button>
     </div>
     <table style="width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px #0001">
       <thead>
@@ -274,6 +286,9 @@ header h2{font-size:1.1rem}
 
     <label>Fecha</label>
     <input id="m-fecha" type="date"/>
+
+    <label>Mes asignado</label>
+    <input id="m-mes" type="month"/>
 
     <label>Sección</label>
     <select id="m-seccion">
@@ -437,11 +452,22 @@ const Auth = {
   }
 };
 
+// --- UTIL MES ---
+function mesActual(){ return new Date().toISOString().slice(0,7); }
+function mesLabel(ym){
+  const [y,m]=ym.split('-');
+  const nombres=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  return nombres[parseInt(m,10)-1]+' '+y;
+}
+function mesDesde(fecha){ return (fecha||'').slice(0,7)||mesActual(); }
+
 // --- APP ---
 const App = {
   user: null,
+  currentMes: mesActual(),
   start(name){
     this.user = name;
+    this.currentMes = mesActual();
     document.getElementById('auth').style.display='none';
     document.getElementById('app').style.display='flex';
     const u = userData(name);
@@ -450,13 +476,15 @@ const App = {
     if(!u.movimientos) u.movimientos=[];
     if(!u.contactos) u.contactos=[];
     if(!u.movimientos.length){ u.movimientos=JSON.parse(JSON.stringify(SEED)); }
-    else { u.movimientos.forEach(m=>{ if(!m.seccion&&SEED_SECCION[m.id]) m.seccion=SEED_SECCION[m.id]; }); }
+    else { u.movimientos.forEach(m=>{
+      if(!m.seccion&&SEED_SECCION[m.id]) m.seccion=SEED_SECCION[m.id];
+      if(!m.mes) m.mes=mesDesde(m.fecha);
+    }); }
     saveUserData(name,u);
     document.getElementById('user-name-display').textContent = u.nombre||name;
     document.getElementById('user-email-display').textContent = u.email||'';
     document.getElementById('user-rut-display').textContent = u.rut||'';
     document.getElementById('sueldo-display').textContent='$'+fmt(u.sueldo||0)+' ▾';
-    // detectar QR entrante
     const params = new URLSearchParams(location.search);
     if(params.has('data')) Conexion.processIncoming(params.get('data'));
     this.tab('resumen', document.querySelector('.bottom-nav button'));
@@ -466,9 +494,24 @@ const App = {
     document.querySelectorAll('.bottom-nav button').forEach(b=>b.classList.remove('active'));
     document.getElementById('panel-'+id).classList.add('active');
     if(btn) btn.classList.add('active');
+    const showNav = id==='resumen'||id==='movimientos';
+    const nav=document.getElementById('mes-nav');
+    nav.style.display=showNav?'flex':'none';
+    if(showNav) this._updateMesNav();
     if(id==='resumen') Resumen.render();
     if(id==='movimientos') Mov.render();
     if(id==='conexion') Conexion.render();
+  },
+  _updateMesNav(){
+    document.getElementById('mes-label').textContent=mesLabel(this.currentMes);
+  },
+  navMes(dir){
+    const [y,m]=this.currentMes.split('-').map(Number);
+    const d=new Date(y,m-1+dir,1);
+    this.currentMes=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    this._updateMesNav();
+    Resumen.render();
+    Mov.render();
   }
 };
 
@@ -476,9 +519,11 @@ const App = {
 const Resumen = {
   render(){
     const u = userData(App.user);
-    const ing = u.movimientos.filter(m=>m.tipo==='ingreso').reduce((a,m)=>a+m.monto,0)+(u.sueldo||0);
-    const egr = u.movimientos.filter(m=>m.tipo==='egreso').reduce((a,m)=>a+m.monto,0);
-    const coopTotal = u.movimientos.filter(m=>m.tipo==='egreso'&&m.cooperativo&&m.contribuyentes?.length)
+    const mes = App.currentMes;
+    const movsMes = u.movimientos.filter(m=>(m.mes||mesDesde(m.fecha))===mes);
+    const ing = movsMes.filter(m=>m.tipo==='ingreso').reduce((a,m)=>a+m.monto,0)+(u.sueldo||0);
+    const egr = movsMes.filter(m=>m.tipo==='egreso').reduce((a,m)=>a+m.monto,0);
+    const coopTotal = movsMes.filter(m=>m.tipo==='egreso'&&m.cooperativo&&m.contribuyentes?.length)
       .reduce((a,m)=>a+m.contribuyentes.reduce((s,c)=>s+(c.monto||0),0),0);
     const miPago = egr - coopTotal;
     const bal = ing - miPago;
@@ -490,7 +535,7 @@ const Resumen = {
     const tbody=document.getElementById('resumen-tbody');
     tbody.innerHTML='';
     ['servicios','gastos'].forEach(sec=>{
-      const movs=u.movimientos.filter(m=>(m.seccion||'servicios')===sec);
+      const movs=movsMes.filter(m=>(m.seccion||'servicios')===sec);
       const e=movs.filter(m=>m.tipo==='egreso').reduce((a,m)=>a+m.monto,0);
       const coop=movs.filter(m=>m.tipo==='egreso'&&m.cooperativo&&m.contribuyentes?.length)
         .reduce((a,m)=>a+m.contribuyentes.reduce((s,c)=>s+(c.monto||0),0),0);
@@ -600,7 +645,8 @@ const Mov = {
     const u=userData(App.user);
     const list=document.getElementById('mov-list');
     list.innerHTML='';
-    const filtered=u.movimientos.filter(m=>(m.seccion||'servicios')===this.currentTab);
+    const mes=App.currentMes;
+    const filtered=u.movimientos.filter(m=>(m.seccion||'servicios')===this.currentTab&&(m.mes||mesDesde(m.fecha))===mes);
     if(!filtered.length){list.innerHTML='<p style="color:#999;text-align:center;margin-top:24px">Sin movimientos aún</p>';return;}
     [...filtered].sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).forEach(m=>{
       const nombre=m.nombre||m.desc||'';
@@ -686,6 +732,7 @@ const Mov = {
     document.getElementById('m-uf-row').style.display='none';
     document.getElementById('m-monto-label').textContent='Monto CLP';
     document.getElementById('m-fecha').value=new Date().toISOString().slice(0,10);
+    document.getElementById('m-mes').value=App.currentMes;
     document.getElementById('m-seccion').value=this.currentTab;
     document.getElementById('m-categoria').value='';
     document.getElementById('m-recurrente').value='no';
@@ -716,6 +763,7 @@ const Mov = {
     document.getElementById('m-monto').value=m.monto||'';
     if(m.moneda==='UF'){document.getElementById('m-uf-row').style.display='block';document.getElementById('m-montouF').value=m.montoUF||'';}
     document.getElementById('m-fecha').value=m.fecha||'';
+    document.getElementById('m-mes').value=m.mes||mesDesde(m.fecha);
     document.getElementById('m-seccion').value=m.seccion||'servicios';
     document.getElementById('m-categoria').value=m.categoria||'';
     if(m.recurrente){document.getElementById('m-recurrente').value='si';document.getElementById('m-dia-row').style.display='block';document.getElementById('m-dia').value=m.diaDelMes||'';}
@@ -730,6 +778,27 @@ const Mov = {
     document.getElementById('mov-modal').classList.add('open');
   },
   closeModal(){document.getElementById('mov-modal').classList.remove('open');this.editId=null;},
+  nuevoMes(){
+    const u=userData(App.user);
+    const mes=App.currentMes;
+    const yaExisten=u.movimientos.filter(m=>(m.mes||mesDesde(m.fecha))===mes);
+    if(yaExisten.length){
+      if(!confirm('Ya hay '+yaExisten.length+' movimiento(s) en '+mesLabel(mes)+'. ¿Igual copiar recurrentes?')) return;
+    }
+    const [y,mo]=mes.split('-').map(Number);
+    const prevDate=new Date(y,mo-2,1);
+    const prevMes=prevDate.getFullYear()+'-'+String(prevDate.getMonth()+1).padStart(2,'0');
+    const recurrentes=u.movimientos.filter(m=>m.recurrente&&(m.mes||mesDesde(m.fecha))===prevMes);
+    if(!recurrentes.length){toast('Sin recurrentes en '+mesLabel(prevMes));return;}
+    recurrentes.forEach(m=>{
+      const dia=m.diaDelMes||new Date(m.fecha).getDate()||1;
+      const fecha=mes+'-'+String(dia).padStart(2,'0');
+      u.movimientos.push({...m, id:crypto.randomUUID(), mes, fecha});
+    });
+    saveUserData(App.user,u);
+    Resumen.render(); Mov.render();
+    toast(recurrentes.length+' recurrentes copiados a '+mesLabel(mes));
+  },
   save(){
     const nombre=document.getElementById('m-nombre').value.trim();
     const monto=parseFloat(document.getElementById('m-monto').value);
@@ -749,6 +818,7 @@ const Mov = {
       nombre,monto,moneda,montoUF,
       tipo:document.getElementById('m-tipo').value,
       fecha:document.getElementById('m-fecha').value,
+      mes:document.getElementById('m-mes').value||App.currentMes,
       seccion:document.getElementById('m-seccion').value,
       categoria:document.getElementById('m-categoria').value.trim(),
       recurrente,diaDelMes,
