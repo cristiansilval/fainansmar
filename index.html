@@ -129,7 +129,6 @@ header h2{font-size:1.1rem}
   </div>
 
   <button id="auth-btn" onclick="Auth.submit()">Entrar</button>
-  <button id="auth-biometric" onclick="Auth.loginBiometric()" style="display:none;width:100%;max-width:320px;padding:11px;background:#fff;border:2px solid #2563eb;color:#2563eb;border-radius:8px;font-size:1rem;cursor:pointer">&#x1F4F1; Usar huella digital</button>
   <span class="toggle" onclick="Auth.toggleMode()">¿No tienes cuenta? Regístrate</span>
   <div id="auth-err" style="color:#dc2626;font-size:.85rem;text-align:center"></div>
 
@@ -355,13 +354,8 @@ const SEED_SECCION = Object.fromEntries(SEED.map(m=>[m.id,m.seccion]));
 // --- AUTH ---
 const Auth = {
   mode: 'login',
-  _mobile: /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || navigator.maxTouchPoints > 1,
 
-  init(){
-    if(this._mobile && !this._isRegMode()){
-      document.getElementById('auth-biometric').style.display='block';
-    }
-  },
+  init(){},
 
   _isRegMode(){ return this.mode==='register'; },
 
@@ -377,7 +371,6 @@ const Auth = {
     document.getElementById('auth-btn').textContent=isReg?'Registrarse':'Entrar';
     document.querySelector('#auth .toggle').textContent=isReg?'¿Ya tienes cuenta? Inicia sesión':'¿No tienes cuenta? Regístrate';
     document.getElementById('auth-reg-fields').style.display=isReg?'flex':'none';
-    document.getElementById('auth-biometric').style.display=(!isReg&&this._mobile)?'block':'none';
     document.getElementById('auth-err').textContent='';
   },
 
@@ -396,54 +389,11 @@ const Auth = {
       const nombreCompleto=apellido?nombre+' '+apellido:nombre;
       users[email]={nombre:nombreCompleto,email,rut,sueldo:0,movimientos:JSON.parse(JSON.stringify(SEED)),contactos:[]};
       saveUsers(users);
-      if(this._mobile && window.PublicKeyCredential){
-        this._registerBiometric(email).finally(()=>{ setSession(email); App.start(email); });
-      } else {
-        setSession(email); App.start(email);
-      }
+      setSession(email); App.start(email);
     } else {
       const found=this._findByEmail(email);
       if(!found){err.textContent='Email no registrado';return;}
-      if(this._mobile){
-        this.loginBiometric();
-      } else {
-        setSession(found.key); App.start(found.key);
-      }
-    }
-  },
-
-  async _registerBiometric(userKey){
-    const users=getUsers();
-    const u=users[userKey];
-    const cred=await navigator.credentials.create({publicKey:{
-      challenge:crypto.getRandomValues(new Uint8Array(32)),
-      rp:{name:'Fainansmar',id:location.hostname},
-      user:{id:new TextEncoder().encode(userKey),name:u.email,displayName:u.nombre},
-      pubKeyCredParams:[{alg:-7,type:'public-key'},{alg:-257,type:'public-key'}],
-      authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required'},
-      timeout:60000
-    }});
-    users[userKey].credentialId=btoa(String.fromCharCode(...new Uint8Array(cred.rawId)));
-    saveUsers(users);
-  },
-
-  async loginBiometric(){
-    const email=document.getElementById('auth-email').value.trim();
-    const err=document.getElementById('auth-err');
-    if(!email){err.textContent='Ingresa tu email';return;}
-    const found=this._findByEmail(email);
-    if(!found){err.textContent='Email no registrado';return;}
-    if(!found.data.credentialId){err.textContent='Sin huella registrada en este dispositivo';return;}
-    try{
-      await navigator.credentials.get({publicKey:{
-        challenge:crypto.getRandomValues(new Uint8Array(32)),
-        allowCredentials:[{id:Uint8Array.from(atob(found.data.credentialId),c=>c.charCodeAt(0)),type:'public-key'}],
-        userVerification:'required',
-        timeout:60000
-      }});
       setSession(found.key); App.start(found.key);
-    } catch(e){
-      err.textContent='Autenticación fallida. Intenta de nuevo.';
     }
   },
 
