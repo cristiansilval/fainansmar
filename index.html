@@ -12,6 +12,7 @@
 <link rel="apple-touch-icon" href="icon-192.png"/>
 <link rel="icon" type="image/png" href="icon-192.png"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:sans-serif;background:#f0f2f5;color:#222;min-height:100vh}
@@ -141,14 +142,27 @@ header h2{font-size:1.1rem}
 
   <!-- RESET -->
   <div id="auth-reset" style="display:none;flex-direction:column;gap:10px;width:100%;max-width:320px">
-    <p style="font-size:.85rem;color:#555;text-align:center">Escribe tu usuario y nueva contraseña</p>
+    <p style="font-size:.85rem;color:#555;text-align:center">Ingresa tu usuario y email registrado</p>
     <input id="reset-name" placeholder="Nombre de usuario" autocomplete="off"/>
-    <div class="pass-wrap" style="width:100%;max-width:none">
-      <input id="reset-pass" type="password" placeholder="Nueva contraseña" style="width:100%"/>
-      <span class="eye" onclick="Auth.toggleEye('reset-pass','eye3')" id="eye3">👁</span>
-    </div>
-    <button onclick="Auth.resetPass()" style="background:#16a34a">Cambiar contraseña</button>
+    <input id="reset-email" type="email" placeholder="Email registrado"/>
+    <button onclick="Auth.resetPass()" style="background:#16a34a" id="reset-btn">Enviar contraseña temporal</button>
     <span class="toggle" onclick="Auth.hideReset()">Cancelar</span>
+  </div>
+
+  <!-- CAMBIAR CONTRASEÑA (forzado tras temp pass) -->
+  <div id="auth-newpass" style="display:none;flex-direction:column;gap:10px;width:100%;max-width:320px">
+    <p style="font-size:.9rem;font-weight:600;text-align:center;color:#2563eb">Crea tu nueva contraseña</p>
+    <p style="font-size:.82rem;color:#555;text-align:center">Ingresaste con contraseña temporal. Debes crear una nueva.</p>
+    <div class="pass-wrap" style="width:100%;max-width:none">
+      <input id="newpass-1" type="password" placeholder="Nueva contraseña" style="width:100%"/>
+      <span class="eye" onclick="Auth.toggleEye('newpass-1','eye-np1')" id="eye-np1">👁</span>
+    </div>
+    <div class="pass-wrap" style="width:100%;max-width:none">
+      <input id="newpass-2" type="password" placeholder="Repetir contraseña" style="width:100%"/>
+      <span class="eye" onclick="Auth.toggleEye('newpass-2','eye-np2')" id="eye-np2">👁</span>
+    </div>
+    <button onclick="Auth.confirmNewPass()" style="background:#16a34a">Guardar contraseña</button>
+    <div id="newpass-err" style="color:#dc2626;font-size:.85rem;text-align:center"></div>
   </div>
 </div>
 
@@ -398,6 +412,12 @@ const Auth = {
       saveUsers(users);
     } else {
       if(!users[name]||users[name].pass!==pass){err.textContent='Nombre o contraseña incorrectos';return;}
+      if(users[name].tempPass){
+        setSession(name);
+        document.getElementById('auth-newpass').style.display='flex';
+        Auth.showNewPass(name);
+        return;
+      }
     }
     setSession(name);
     App.start(name);
@@ -414,21 +434,60 @@ const Auth = {
   hideReset(){
     document.getElementById('auth-reset').style.display='none';
     document.getElementById('reset-name').value='';
-    document.getElementById('reset-pass').value='';
+    document.getElementById('reset-email').value='';
   },
   resetPass(){
     const name=document.getElementById('reset-name').value.trim();
-    const pass=document.getElementById('reset-pass').value;
+    const email=document.getElementById('reset-email').value.trim();
     const err=document.getElementById('auth-err');
-    if(!name||!pass){err.textContent='Completa ambos campos';return;}
+    if(!name||!email){err.textContent='Completa ambos campos';return;}
     const users=getUsers();
     if(!users[name]){err.textContent='Usuario no encontrado';return;}
-    users[name].pass=pass;
+    if((users[name].email||'').toLowerCase()!==email.toLowerCase()){err.textContent='Email no coincide con el usuario';return;}
+    const chars='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+    const tempPass=Array.from({length:8},()=>chars[Math.floor(Math.random()*chars.length)]).join('');
+    users[name].pass=tempPass;
+    users[name].tempPass=true;
     saveUsers(users);
-    this.hideReset();
-    err.style.color='#16a34a';
-    err.textContent='Contraseña actualizada. Inicia sesión.';
-    setTimeout(()=>{err.textContent='';err.style.color='#dc2626';},3000);
+    const btn=document.getElementById('reset-btn');
+    btn.textContent='Enviando...';
+    btn.disabled=true;
+    emailjs.send('service_py0indr','template_kasvlfw',{
+      to_email: email,
+      nombre: users[name].nombre||name,
+      temp_pass: tempPass
+    }).then(()=>{
+      this.hideReset();
+      err.style.color='#16a34a';
+      err.textContent='Correo enviado. Revisa tu bandeja.';
+      setTimeout(()=>{err.textContent='';err.style.color='#dc2626';},4000);
+    }).catch(()=>{
+      err.textContent='Error al enviar correo. Intenta de nuevo.';
+    }).finally(()=>{
+      btn.textContent='Enviar contraseña temporal';
+      btn.disabled=false;
+    });
+  },
+  _pendingNewPassUser: null,
+  showNewPass(name){
+    this._pendingNewPassUser=name;
+    document.getElementById('auth-newpass').style.display='flex';
+  },
+  confirmNewPass(){
+    const p1=document.getElementById('newpass-1').value;
+    const p2=document.getElementById('newpass-2').value;
+    const err=document.getElementById('newpass-err');
+    if(!p1||p1.length<4){err.textContent='Mínimo 4 caracteres';return;}
+    if(p1!==p2){err.textContent='Las contraseñas no coinciden';return;}
+    const users=getUsers();
+    users[this._pendingNewPassUser].pass=p1;
+    delete users[this._pendingNewPassUser].tempPass;
+    saveUsers(users);
+    document.getElementById('auth-newpass').style.display='none';
+    document.getElementById('newpass-1').value='';
+    document.getElementById('newpass-2').value='';
+    App.start(this._pendingNewPassUser);
+    this._pendingNewPassUser=null;
   }
 };
 
@@ -785,6 +844,9 @@ const Usr = {
 // --- INIT ---
 const s=getSession();
 if(s&&getUsers()[s]) App.start(s);
+
+// --- EMAILJS INIT ---
+emailjs.init('7hGwmcVu29RcTACG1');
 
 // --- SERVICE WORKER (PWA) ---
 if('serviceWorker' in navigator){
