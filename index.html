@@ -109,6 +109,13 @@ header h2{font-size:1.1rem}
 .bottom-nav button{flex:1;padding:10px 0;border:none;background:none;font-size:.72rem;color:#666;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px}
 .bottom-nav button.active{color:#2563eb}
 .bottom-nav button svg{width:22px;height:22px}
+/* SELECCION MULTIPLE */
+.mov-item.selected{border:2px solid #2563eb;background:#eff6ff}
+.mov-item .chk{margin-right:10px;width:18px;height:18px;accent-color:#2563eb;cursor:pointer;flex-shrink:0}
+.sel-bar{display:none;position:fixed;bottom:64px;left:0;right:0;background:#1e293b;color:#fff;padding:10px 16px;z-index:20;align-items:center;gap:8px;justify-content:space-between}
+.sel-bar.show{display:flex}
+.sel-bar span{font-size:.85rem}
+.sel-bar button{padding:7px 13px;border:none;border-radius:8px;font-size:.82rem;cursor:pointer}
 /* TOAST */
 .toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:10px 20px;border-radius:20px;font-size:.85rem;z-index:999;opacity:0;transition:opacity .3s}
 .toast.show{opacity:1}
@@ -337,6 +344,28 @@ header h2{font-size:1.1rem}
   </div>
 </div>
 
+<!-- BARRA SELECCION -->
+<div class="sel-bar" id="sel-bar">
+  <span id="sel-count">0 seleccionados</span>
+  <div style="display:flex;gap:8px">
+    <button onclick="Mov.accionMes('duplicar')" style="background:#2563eb;color:#fff">Duplicar a mes</button>
+    <button onclick="Mov.accionMes('asignar')" style="background:#16a34a;color:#fff">Asignar a mes</button>
+    <button onclick="Mov.clearSel()" style="background:#374151;color:#fff">✕</button>
+  </div>
+</div>
+
+<!-- MODAL SELECCION DE MES -->
+<div class="modal-bg" id="mes-modal">
+  <div class="modal" style="max-height:40vh">
+    <h3 id="mes-modal-title">Selecciona mes</h3>
+    <input id="mes-modal-input" type="month" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:8px;font-size:1rem;margin-top:8px"/>
+    <div class="modal-actions" style="margin-top:14px">
+      <button class="btn-cancel" onclick="Mov.closeMesModal()">Cancelar</button>
+      <button class="btn-save" onclick="Mov.confirmarAccion()">Confirmar</button>
+    </div>
+  </div>
+</div>
+
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
@@ -510,6 +539,8 @@ const App = {
     const d=new Date(y,m-1+dir,1);
     this.currentMes=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
     this._updateMesNav();
+    Mov.selected.clear();
+    Mov._updateSelBar();
     Resumen.render();
     Mov.render();
   }
@@ -634,9 +665,13 @@ const Conexion = {
 const Mov = {
   editId: null,
   currentTab: 'servicios',
-  contribs: [], // [{nombre,email,rut,val}]
+  contribs: [],
+  selected: new Set(),
+  _accion: null,
   subTab(id,btn){
     this.currentTab=id;
+    this.selected.clear();
+    this._updateSelBar();
     document.querySelectorAll('.sub-tabs button').forEach(b=>b.classList.remove('active'));
     btn.classList.add('active');
     this.render();
@@ -661,9 +696,11 @@ const Mov = {
         });
       }
       if(m.categoria) tags.push(`<span class="tag">${m.categoria}</span>`);
+      const isSel=this.selected.has(m.id);
       const d=document.createElement('div');
-      d.className='mov-item'+(m.recibido?' recibido':'');
+      d.className='mov-item'+(m.recibido?' recibido':'')+(isSel?' selected':'');
       d.innerHTML=`
+        <input type="checkbox" class="chk" ${isSel?'checked':''} onchange="Mov.toggleSel('${m.id}',this.checked)"/>
         <div class="left">
           <div class="desc">${nombre}</div>
           <div class="meta">${m.fecha}${tags.length?' · '+tags.join(' '):''}</div>
@@ -776,6 +813,64 @@ const Mov = {
     }
     document.getElementById('m-notas').value=m.notas||'';
     document.getElementById('mov-modal').classList.add('open');
+  },
+  toggleSel(id,checked){
+    if(checked) this.selected.add(id); else this.selected.delete(id);
+    this._updateSelBar();
+    const items=document.querySelectorAll('.mov-item');
+    items.forEach(el=>{
+      const chk=el.querySelector('.chk');
+      if(chk){
+        const mid=chk.getAttribute('onchange').match(/'([^']+)'/)?.[1];
+        if(mid===id) el.classList.toggle('selected',checked);
+      }
+    });
+  },
+  _updateSelBar(){
+    const bar=document.getElementById('sel-bar');
+    const n=this.selected.size;
+    if(n>0){
+      bar.classList.add('show');
+      document.getElementById('sel-count').textContent=n+' seleccionado'+(n>1?'s':'');
+    } else {
+      bar.classList.remove('show');
+    }
+  },
+  clearSel(){
+    this.selected.clear();
+    this._updateSelBar();
+    this.render();
+  },
+  accionMes(tipo){
+    if(!this.selected.size){toast('Selecciona al menos uno');return;}
+    this._accion=tipo;
+    document.getElementById('mes-modal-title').textContent=tipo==='duplicar'?'Duplicar a mes':'Asignar a mes';
+    document.getElementById('mes-modal-input').value=App.currentMes;
+    document.getElementById('mes-modal').classList.add('open');
+  },
+  closeMesModal(){document.getElementById('mes-modal').classList.remove('open');},
+  confirmarAccion(){
+    const mesDest=document.getElementById('mes-modal-input').value;
+    if(!mesDest){toast('Selecciona un mes');return;}
+    const u=userData(App.user);
+    const ids=[...this.selected];
+    if(this._accion==='duplicar'){
+      ids.forEach(id=>{
+        const m=u.movimientos.find(x=>x.id===id);
+        if(m) u.movimientos.push({...m,id:crypto.randomUUID(),mes:mesDest,fecha:mesDest+'-'+m.fecha.slice(8)});
+      });
+      toast(ids.length+' duplicado(s) a '+mesLabel(mesDest));
+    } else {
+      ids.forEach(id=>{
+        const m=u.movimientos.find(x=>x.id===id);
+        if(m) m.mes=mesDest;
+      });
+      toast(ids.length+' asignado(s) a '+mesLabel(mesDest));
+    }
+    saveUserData(App.user,u);
+    this.closeMesModal();
+    this.clearSel();
+    Resumen.render();
   },
   closeModal(){document.getElementById('mov-modal').classList.remove('open');this.editId=null;},
   nuevoMes(){
