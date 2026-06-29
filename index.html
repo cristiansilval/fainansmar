@@ -119,50 +119,26 @@ header h2{font-size:1.1rem}
 <!-- AUTH -->
 <div id="auth">
   <h1>Fainansmar</h1>
-  <input id="auth-name" placeholder="Nombre" autocomplete="off"/>
-  <div id="auth-apellido-wrap" style="display:none;width:100%;max-width:320px">
-    <input id="auth-apellido" placeholder="Apellido" autocomplete="off" style="width:100%"/>
-  </div>
-  <div class="pass-wrap">
-    <input id="auth-pass" type="password" placeholder="Contraseña"/>
-    <span class="eye" onclick="Auth.toggleEye('auth-pass','eye1')" id="eye1">👁</span>
-  </div>
-  <div id="auth-extra">
-    <div class="pass-wrap">
-      <input id="auth-pass2" type="password" placeholder="Repetir contraseña"/>
-      <span class="eye" onclick="Auth.toggleEye('auth-pass2','eye2')" id="eye2">👁</span>
-    </div>
-    <input id="auth-email" type="email" placeholder="Email"/>
+  <input id="auth-email" type="email" placeholder="Email" autocomplete="email" style="width:100%;max-width:320px"/>
+
+  <!-- Solo en registro -->
+  <div id="auth-reg-fields" style="display:none;flex-direction:column;gap:14px;width:100%;max-width:320px">
+    <input id="auth-nombre" placeholder="Nombre" autocomplete="off"/>
+    <input id="auth-apellido" placeholder="Apellido" autocomplete="off"/>
     <input id="auth-rut" placeholder="RUT (ej: 15366794-2)"/>
   </div>
-  <button onclick="Auth.submit()">Entrar</button>
-  <span class="toggle" onclick="Auth.toggleMode()">¿No tienes cuenta? Regístrate</span>
-  <span class="toggle" onclick="Auth.showReset()" style="color:#999">Olvidé mi contraseña</span>
-  <div id="auth-err" style="color:#dc2626;font-size:.85rem"></div>
 
-  <!-- RESET -->
+  <button id="auth-btn" onclick="Auth.submit()">Entrar</button>
+  <button id="auth-biometric" onclick="Auth.loginBiometric()" style="display:none;width:100%;max-width:320px;padding:11px;background:#fff;border:2px solid #2563eb;color:#2563eb;border-radius:8px;font-size:1rem;cursor:pointer">&#x1F4F1; Usar huella digital</button>
+  <span class="toggle" onclick="Auth.toggleMode()">¿No tienes cuenta? Regístrate</span>
+  <div id="auth-err" style="color:#dc2626;font-size:.85rem;text-align:center"></div>
+
+  <!-- RESET (oculto) -->
   <div id="auth-reset" style="display:none;flex-direction:column;gap:10px;width:100%;max-width:320px">
-    <p style="font-size:.85rem;color:#555;text-align:center">Ingresa tu usuario y email registrado</p>
-    <input id="reset-name" placeholder="Nombre de usuario" autocomplete="off"/>
+    <p style="font-size:.85rem;color:#555;text-align:center">Ingresa tu email registrado</p>
     <input id="reset-email" type="email" placeholder="Email registrado"/>
     <button onclick="Auth.resetPass()" style="background:#16a34a" id="reset-btn">Enviar contraseña temporal</button>
     <span class="toggle" onclick="Auth.hideReset()">Cancelar</span>
-  </div>
-
-  <!-- CAMBIAR CONTRASEÑA (forzado tras temp pass) -->
-  <div id="auth-newpass" style="display:none;flex-direction:column;gap:10px;width:100%;max-width:320px">
-    <p style="font-size:.9rem;font-weight:600;text-align:center;color:#2563eb">Crea tu nueva contraseña</p>
-    <p style="font-size:.82rem;color:#555;text-align:center">Ingresaste con contraseña temporal. Debes crear una nueva.</p>
-    <div class="pass-wrap" style="width:100%;max-width:none">
-      <input id="newpass-1" type="password" placeholder="Nueva contraseña" style="width:100%"/>
-      <span class="eye" onclick="Auth.toggleEye('newpass-1','eye-np1')" id="eye-np1">👁</span>
-    </div>
-    <div class="pass-wrap" style="width:100%;max-width:none">
-      <input id="newpass-2" type="password" placeholder="Repetir contraseña" style="width:100%"/>
-      <span class="eye" onclick="Auth.toggleEye('newpass-2','eye-np2')" id="eye-np2">👁</span>
-    </div>
-    <button onclick="Auth.confirmNewPass()" style="background:#16a34a">Guardar contraseña</button>
-    <div id="newpass-err" style="color:#dc2626;font-size:.85rem;text-align:center"></div>
   </div>
 </div>
 
@@ -379,115 +355,135 @@ const SEED_SECCION = Object.fromEntries(SEED.map(m=>[m.id,m.seccion]));
 // --- AUTH ---
 const Auth = {
   mode: 'login',
+  _mobile: /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || navigator.maxTouchPoints > 1,
+
+  init(){
+    if(this._mobile && !this._isRegMode()){
+      document.getElementById('auth-biometric').style.display='block';
+    }
+  },
+
+  _isRegMode(){ return this.mode==='register'; },
+
+  _findByEmail(email){
+    const users=getUsers();
+    const entry=Object.entries(users).find(([,u])=>(u.email||'').toLowerCase()===email.toLowerCase());
+    return entry ? {key:entry[0], data:entry[1]} : null;
+  },
+
   toggleMode(){
-    this.mode = this.mode==='login'?'register':'login';
-    const isReg = this.mode==='register';
-    document.querySelector('#auth button').textContent = isReg?'Registrarse':'Entrar';
-    document.querySelector('#auth .toggle').textContent = isReg?'¿Ya tienes cuenta? Inicia sesión':'¿No tienes cuenta? Regístrate';
-    document.getElementById('auth-extra').style.display = isReg?'flex':'none';
-    document.getElementById('auth-apellido-wrap').style.display = isReg?'block':'none';
+    this.mode=this.mode==='login'?'register':'login';
+    const isReg=this._isRegMode();
+    document.getElementById('auth-btn').textContent=isReg?'Registrarse':'Entrar';
+    document.querySelector('#auth .toggle').textContent=isReg?'¿Ya tienes cuenta? Inicia sesión':'¿No tienes cuenta? Regístrate';
+    document.getElementById('auth-reg-fields').style.display=isReg?'flex':'none';
+    document.getElementById('auth-biometric').style.display=(!isReg&&this._mobile)?'block':'none';
     document.getElementById('auth-err').textContent='';
   },
-  toggleEye(inputId, eyeId){
-    const inp = document.getElementById(inputId);
-    inp.type = inp.type==='password'?'text':'password';
-    document.getElementById(eyeId).textContent = inp.type==='password'?'👁':'🙈';
-  },
+
   submit(){
-    const name     = document.getElementById('auth-name').value.trim();
-    const apellido = document.getElementById('auth-apellido').value.trim();
-    const pass     = document.getElementById('auth-pass').value;
-    const pass2    = document.getElementById('auth-pass2').value;
-    const email    = document.getElementById('auth-email').value.trim();
-    const rut      = document.getElementById('auth-rut').value.trim();
-    const err      = document.getElementById('auth-err');
-    if(!name||!pass){err.textContent='Completa los campos obligatorios';return;}
-    const users = getUsers();
-    if(this.mode==='register'){
-      if(!email||!rut){err.textContent='Email y RUT son obligatorios';return;}
-      if(pass!==pass2){err.textContent='Las contraseñas no coinciden';return;}
-      if(users[name]){err.textContent='Nombre ya existe';return;}
-      const nombreCompleto = apellido ? name+' '+apellido : name;
-      users[name]={pass,nombre:nombreCompleto,email,rut,sueldo:0,movimientos:JSON.parse(JSON.stringify(SEED)),contactos:[]};
+    const email=document.getElementById('auth-email').value.trim();
+    const err=document.getElementById('auth-err');
+    if(!email){err.textContent='Ingresa tu email';return;}
+    const users=getUsers();
+
+    if(this._isRegMode()){
+      const nombre=document.getElementById('auth-nombre').value.trim();
+      const apellido=document.getElementById('auth-apellido').value.trim();
+      const rut=document.getElementById('auth-rut').value.trim();
+      if(!nombre||!rut){err.textContent='Nombre y RUT son obligatorios';return;}
+      if(this._findByEmail(email)){err.textContent='Email ya registrado';return;}
+      const nombreCompleto=apellido?nombre+' '+apellido:nombre;
+      users[email]={nombre:nombreCompleto,email,rut,sueldo:0,movimientos:JSON.parse(JSON.stringify(SEED)),contactos:[]};
       saveUsers(users);
+      if(this._mobile && window.PublicKeyCredential){
+        this._registerBiometric(email).finally(()=>{ setSession(email); App.start(email); });
+      } else {
+        setSession(email); App.start(email);
+      }
     } else {
-      if(!users[name]||users[name].pass!==pass){err.textContent='Nombre o contraseña incorrectos';return;}
-      if(users[name].tempPass){
-        setSession(name);
-        document.getElementById('auth-newpass').style.display='flex';
-        Auth.showNewPass(name);
-        return;
+      const found=this._findByEmail(email);
+      if(!found){err.textContent='Email no registrado';return;}
+      if(this._mobile){
+        this.loginBiometric();
+      } else {
+        setSession(found.key); App.start(found.key);
       }
     }
-    setSession(name);
-    App.start(name);
   },
+
+  async _registerBiometric(userKey){
+    const users=getUsers();
+    const u=users[userKey];
+    const cred=await navigator.credentials.create({publicKey:{
+      challenge:crypto.getRandomValues(new Uint8Array(32)),
+      rp:{name:'Fainansmar',id:location.hostname},
+      user:{id:new TextEncoder().encode(userKey),name:u.email,displayName:u.nombre},
+      pubKeyCredParams:[{alg:-7,type:'public-key'},{alg:-257,type:'public-key'}],
+      authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required'},
+      timeout:60000
+    }});
+    users[userKey].credentialId=btoa(String.fromCharCode(...new Uint8Array(cred.rawId)));
+    saveUsers(users);
+  },
+
+  async loginBiometric(){
+    const email=document.getElementById('auth-email').value.trim();
+    const err=document.getElementById('auth-err');
+    if(!email){err.textContent='Ingresa tu email';return;}
+    const found=this._findByEmail(email);
+    if(!found){err.textContent='Email no registrado';return;}
+    if(!found.data.credentialId){err.textContent='Sin huella registrada en este dispositivo';return;}
+    try{
+      await navigator.credentials.get({publicKey:{
+        challenge:crypto.getRandomValues(new Uint8Array(32)),
+        allowCredentials:[{id:Uint8Array.from(atob(found.data.credentialId),c=>c.charCodeAt(0)),type:'public-key'}],
+        userVerification:'required',
+        timeout:60000
+      }});
+      setSession(found.key); App.start(found.key);
+    } catch(e){
+      err.textContent='Autenticación fallida. Intenta de nuevo.';
+    }
+  },
+
   logout(){
     clearSession();
     document.getElementById('app').style.display='none';
     document.getElementById('auth').style.display='flex';
   },
+
   showReset(){
     document.getElementById('auth-reset').style.display='flex';
     document.getElementById('auth-err').textContent='';
   },
   hideReset(){
     document.getElementById('auth-reset').style.display='none';
-    document.getElementById('reset-name').value='';
     document.getElementById('reset-email').value='';
   },
   resetPass(){
-    const name=document.getElementById('reset-name').value.trim();
     const email=document.getElementById('reset-email').value.trim();
     const err=document.getElementById('auth-err');
-    if(!name||!email){err.textContent='Completa ambos campos';return;}
-    const users=getUsers();
-    if(!users[name]){err.textContent='Usuario no encontrado';return;}
-    if((users[name].email||'').toLowerCase()!==email.toLowerCase()){err.textContent='Email no coincide con el usuario';return;}
+    if(!email){err.textContent='Ingresa tu email';return;}
+    const found=this._findByEmail(email);
+    if(!found){err.textContent='Email no registrado';return;}
     const chars='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
     const tempPass=Array.from({length:8},()=>chars[Math.floor(Math.random()*chars.length)]).join('');
-    users[name].pass=tempPass;
-    users[name].tempPass=true;
+    const users=getUsers();
+    users[found.key].pass=tempPass;
+    users[found.key].tempPass=true;
     saveUsers(users);
     const btn=document.getElementById('reset-btn');
-    btn.textContent='Enviando...';
-    btn.disabled=true;
+    btn.textContent='Enviando...'; btn.disabled=true;
     emailjs.send('service_py0indr','template_kasvlfw',{
-      to_email: email,
-      nombre: users[name].nombre||name,
-      temp_pass: tempPass
+      to_email:email, nombre:found.data.nombre, temp_pass:tempPass
     }).then(()=>{
       this.hideReset();
       err.style.color='#16a34a';
       err.textContent='Correo enviado. Revisa tu bandeja.';
       setTimeout(()=>{err.textContent='';err.style.color='#dc2626';},4000);
-    }).catch(()=>{
-      err.textContent='Error al enviar correo. Intenta de nuevo.';
-    }).finally(()=>{
-      btn.textContent='Enviar contraseña temporal';
-      btn.disabled=false;
-    });
-  },
-  _pendingNewPassUser: null,
-  showNewPass(name){
-    this._pendingNewPassUser=name;
-    document.getElementById('auth-newpass').style.display='flex';
-  },
-  confirmNewPass(){
-    const p1=document.getElementById('newpass-1').value;
-    const p2=document.getElementById('newpass-2').value;
-    const err=document.getElementById('newpass-err');
-    if(!p1||p1.length<4){err.textContent='Mínimo 4 caracteres';return;}
-    if(p1!==p2){err.textContent='Las contraseñas no coinciden';return;}
-    const users=getUsers();
-    users[this._pendingNewPassUser].pass=p1;
-    delete users[this._pendingNewPassUser].tempPass;
-    saveUsers(users);
-    document.getElementById('auth-newpass').style.display='none';
-    document.getElementById('newpass-1').value='';
-    document.getElementById('newpass-2').value='';
-    App.start(this._pendingNewPassUser);
-    this._pendingNewPassUser=null;
+    }).catch(()=>{ err.textContent='Error al enviar correo.'; })
+    .finally(()=>{ btn.textContent='Enviar contraseña temporal'; btn.disabled=false; });
   }
 };
 
@@ -498,8 +494,8 @@ const App = {
     this.user = name;
     document.getElementById('auth').style.display='none';
     document.getElementById('app').style.display='flex';
-    document.getElementById('hdr-name').textContent = name;
     const u = userData(name);
+    document.getElementById('hdr-name').textContent = u.nombre||name;
     // migraciones
     if(!u.movimientos) u.movimientos=[];
     if(!u.contactos) u.contactos=[];
@@ -842,6 +838,7 @@ const Usr = {
 };
 
 // --- INIT ---
+Auth.init();
 const s=getSession();
 if(s&&getUsers()[s]) App.start(s);
 
